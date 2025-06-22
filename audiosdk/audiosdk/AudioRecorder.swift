@@ -216,6 +216,14 @@ public final class AudioRecorder {
         }
         return result
     }
+
+    /// Returns the PID of the first audio-capable process matching the given name (case-insensitive).
+    /// - Parameter name: The process name to search for.
+    /// - Returns: The PID if found, or nil if not found.
+    public static func pidForAudioCapableProcess(named name: String) -> pid_t? {
+        let procs = listAudioCapableProcesses()
+        return procs.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.pid
+    }
 }
 
 // MARK: - Internal Implementation (ProcessTap)

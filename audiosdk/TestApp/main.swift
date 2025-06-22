@@ -18,8 +18,17 @@ for (pid, name) in audioProcs {
     logger.log("  \(name, privacy: .public) [PID: \(pid)]")
 }
 
+// Example: Find the PID for a known audio-capable process by name
+let processNameToFind = "QuickTime Player" // Change to a process you expect to be running and audio-capable
+var targetPID: pid_t? = nil
+if let foundPID = AudioRecorder.pidForAudioCapableProcess(named: processNameToFind) {
+    logger.log("JRSZ PID for process '\(processNameToFind, privacy: .public)': \(foundPID)")
+    targetPID = foundPID
+} else {
+    logger.log("JRSZ No audio-capable process found with name '\(processNameToFind, privacy: .public)'")
+}
+
 // --- Configuration ---
-let targetPID: pid_t = 39198 // Example PID, please change
 // Hardcode your desired device ID here after running the app once to see the list
 let selectedDeviceID = 107
 
@@ -43,16 +52,19 @@ recorder.postProcessingHandler = { fileURL in
     logger.log("✅ Post-processing recording at: \(fileURL.path)")
 }
 
-
-
 let dateFormatter = DateFormatter()
 dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
 let dateString = dateFormatter.string(from: Date())
 let outputFileURL = outputDir.appendingPathComponent("recording-\(dateString).wav")
 
+guard let pid = targetPID else {
+    logger.error("❌ No valid target PID. Exiting.")
+    exit(1)
+}
+
 do {
-    logger.log("▶️ Starting recording for PID \(targetPID)...")
-    try recorder.startRecording(pid: targetPID, outputFile: outputFileURL, outputDeviceID: selectedDeviceID)
+    logger.log("▶️ Starting recording for PID \(pid)...")
+    try recorder.startRecording(pid: pid, outputFile: outputFileURL, outputDeviceID: selectedDeviceID)
     //try recorder.startRecording(pid: targetPID, outputFile: outputFileURL)
     logger.log("...Recording for 5 seconds...")
     sleep(5)
