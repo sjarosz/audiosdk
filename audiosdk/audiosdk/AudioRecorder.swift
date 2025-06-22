@@ -19,6 +19,7 @@ public enum RecordingError: Error, LocalizedError {
 public final class AudioRecorder {
     private let logger = Logger(subsystem: "com.audiocap.sdk", category: "AudioRecorder")
     private var tap: ProcessTap?
+    public var outputDirectory: URL?
 
     public init() {}
 
@@ -87,6 +88,12 @@ fileprivate final class ProcessTap {
         ]
 
         var tapStreamDescription = try tapID.readAudioTapStreamBasicDescription()
+        
+        // --- Validate the audio format before proceeding ---
+        guard tapStreamDescription.mFormatID == kAudioFormatLinearPCM,
+              (tapStreamDescription.mFormatFlags & kAudioFormatFlagIsFloat) != 0 else {
+            throw RecordingError.general("Unsupported audio format. The SDK currently only supports Linear PCM float audio streams.")
+        }
         
         aggregateDeviceID = .unknown
         err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &aggregateDeviceID)
