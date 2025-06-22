@@ -1,45 +1,57 @@
 import Foundation
 import audiosdk
+import OSLog
 
-func main() {
-    let recorder = AudioRecorder()
+let logger = Logger(subsystem: "com.audiocap.testapp", category: "main")
 
-    let pid = Int32(39198)
-    //print("Enter the process ID (pid) of the application you want to record:")
-    //guard let input = readLine(), let pid = Int32(input) else {
-    //    print("Invalid input. Please enter a number.")
-    //    return
-    //}
+// --- Configuration ---
+// Replace with the PID of the application you want to record.
+// You can find the PID using `pgrep -f "Application Name"` in Terminal.
+let targetPID: pid_t = 39198 // Example PID, please change
 
-    do {
-        let desktopURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
-        let recordingsFolderURL = desktopURL.appendingPathComponent("Recordings")
-        try FileManager.default.createDirectory(at: recordingsFolderURL, withIntermediateDirectories: true, attributes: nil)
-        recorder.outputDirectory = recordingsFolderURL
-        print("🎵 Recordings will be saved to: \(recordingsFolderURL.path)")
-    } catch {
-        print("❌ Could not create or find the recordings directory: \(error)")
-        return
-    }
+// --- Main Logic ---
+let recorder = AudioRecorder()
 
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-    let dateString = formatter.string(from: Date())
-    let outputURL = recorder.outputDirectory!.appendingPathComponent("recording-\(dateString).wav")
+// Create a "Recordings" directory on the Desktop.
+guard let desktopURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first else {
+    logger.error("❌ Could not find desktop directory.")
+    exit(1)
+}
+let outputDir = desktopURL.appendingPathComponent("Recordings")
 
-    do {
-        try recorder.startRecording(pid: pid, outputFile: outputURL)
-        print("▶️ Recording from pid \(pid)... Recording for 5 seconds.")
-    } catch {
-        print("❌ Failed to start recording: \(error)")
-        return
-    }
-
-    // Wait for 5 seconds
-    sleep(5)
-
-    recorder.stopRecording()
-    print("✅ Recording stopped. File saved to: \(outputURL.path)")
+do {
+    try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true, attributes: nil)
+    recorder.outputDirectory = outputDir
+    logger.log("🎵 Recordings will be saved to: \(outputDir.path)")
+} catch {
+    logger.error("❌ Could not create or find the recordings directory: \(error.localizedDescription)")
+    exit(1)
 }
 
-main()
+// Set the post-processing handler.
+recorder.postProcessingHandler = { fileURL in
+    logger.log("✅ Post-processing recording at: \(fileURL.path)")
+}
+
+// Generate a unique filename.
+let dateFormatter = DateFormatter()
+dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+let dateString = dateFormatter.string(from: Date())
+let outputFileURL = outputDir.appendingPathComponent("recording-\(dateString).wav")
+
+do {
+    logger.log("▶️ Starting recording for PID \(targetPID)...")
+    try recorder.startRecording(pid: targetPID, outputFile: outputFileURL)
+
+    logger.log("...Recording for 5 seconds...")
+    sleep(5)
+
+    logger.log("⏹️ Stopping recording.")
+    recorder.stopRecording()
+
+    logger.log("✅ Recording session finished successfully.")
+
+} catch {
+    logger.error("❌ An error occurred: \(error.localizedDescription)")
+    logger.error("➡️ Details: \(error.localizedDescription)")
+}

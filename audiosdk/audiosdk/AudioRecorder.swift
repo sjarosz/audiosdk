@@ -20,6 +20,7 @@ public final class AudioRecorder {
     private let logger = Logger(subsystem: "com.audiocap.sdk", category: "AudioRecorder")
     private var tap: ProcessTap?
     public var outputDirectory: URL?
+    public var postProcessingHandler: ((URL) -> Void)?
 
     public init() {}
 
@@ -33,8 +34,14 @@ public final class AudioRecorder {
     }
 
     public func stopRecording() {
+        let fileURL = tap?.currentFileURL
+        
         tap?.stopRecording()
         tap = nil
+        
+        if let handler = postProcessingHandler, let url = fileURL {
+            handler(url)
+        }
     }
 }
 
@@ -52,6 +59,10 @@ fileprivate final class ProcessTap {
     
     private var isRecording = false
     private var currentFile: AVAudioFile?
+    
+    var currentFileURL: URL? {
+        return currentFile?.url
+    }
 
     init(pid: pid_t, objectID: AudioObjectID, logger: Logger) {
         self.pid = pid
