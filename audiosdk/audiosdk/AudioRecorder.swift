@@ -125,6 +125,12 @@ fileprivate final class ProcessTap {
         let file = try AVAudioFile(forWriting: fileURL, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: format.isInterleaved)
         self.currentFile = file
 
+        // --- Enhanced structured logs ---
+        logger.info("Recording to file: \(fileURL.path, privacy: .public)")
+        logger.info("Audio format: sampleRate=\(format.sampleRate, privacy: .public), channels=\(format.channelCount, privacy: .public)")
+        logger.info("Tap device ID: \(self.processTapID, privacy: .public), Aggregate device ID: \(self.aggregateDeviceID, privacy: .public)")
+        // --- End enhanced logs ---
+
         err = AudioDeviceCreateIOProcIDWithBlock(&deviceProcID, aggregateDeviceID, queue) { [weak self] _, inData, _, _, _ in
             guard let self, let currentFile = self.currentFile else { return }
 
