@@ -186,6 +186,48 @@ public final class AudioRecorder {
         return outputDevices
     }
 
+    /// List all available input audio devices (microphones, etc).
+    public static func listInputAudioDevices() -> [AudioDeviceInfo] {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        var status = AudioObjectGetPropertyDataSize(AudioObjectID.system, &propertyAddress, 0, nil, &dataSize)
+        guard status == noErr else { return [] }
+        let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
+        status = AudioObjectGetPropertyData(AudioObjectID.system, &propertyAddress, 0, nil, &dataSize, &deviceIDs)
+        guard status == noErr else { return [] }
+        var inputDevices: [AudioDeviceInfo] = []
+        for deviceID in deviceIDs {
+            var name: CFString = "" as CFString
+            var nameSize = UInt32(MemoryLayout<CFString?>.size)
+            var nameAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioObjectPropertyName,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let nameStatus = withUnsafeMutablePointer(to: &name) {
+                AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, $0)
+            }
+            if nameStatus != noErr { continue }
+            // Only include devices that actually have input audio streams
+            var streamsSize: UInt32 = 0
+            var streamsAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyStreams,
+                mScope: kAudioDevicePropertyScopeInput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let streamsStatus = AudioObjectGetPropertyDataSize(deviceID, &streamsAddress, 0, nil, &streamsSize)
+            if streamsStatus == noErr, streamsSize > 0 {
+                inputDevices.append(AudioDeviceInfo(id: deviceID, name: name as String))
+            }
+        }
+        return inputDevices
+    }
+
     /// Returns a list of running processes that are audio-capable (i.e., have a valid CoreAudio object).
     ///
     /// This function enumerates all running processes on the system and attempts to translate each PID

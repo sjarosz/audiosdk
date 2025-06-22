@@ -7,6 +7,7 @@ import OSLog
 let processNameToFind = "QuickTime Player" // Change to a process you expect to be running and audio-capable
 // Set your desired output device name here, or leave as nil to use the default system output device
 let outputDeviceName: String? = "Mac Studio Speakers" // Change to your device name, or set to nil
+let inputDeviceName: String?="Elgato Wave XLR"
 let logger = Logger(subsystem: "com.audiocap.testapp", category: "main")
 
 // Look up the device ID for the given output device name using the SDK helper
@@ -46,6 +47,16 @@ if let foundPID = AudioRecorder.pidForAudioCapableProcess(named: processNameToFi
     targetPID = foundPID
 } else {
     logger.log("JRSZ No audio-capable process found with name '\(processNameToFind, privacy: .public)'")
+}
+
+// --- Optional: Print all available input audio devices (toggle with if (1 == 1/0)) ---
+if (1 == 1) { // Print all available input audio devices
+    // Uses: AudioRecorder.listInputAudioDevices()
+    let inputDevices = AudioRecorder.listInputAudioDevices()
+    logger.log("JRSZ Available input audio devices:")
+    for device in inputDevices {
+        logger.log("  \(device.name, privacy: .public) [ID: \(device.id)]")
+    }
 }
 
 // --- Standard SDK usage for recording ---
