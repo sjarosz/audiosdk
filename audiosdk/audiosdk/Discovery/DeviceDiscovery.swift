@@ -105,4 +105,31 @@ public final class DeviceDiscovery {
             isOutput: isOutput
         )
     }
-} 
+
+    /// Returns the default system input device
+    /// - Returns: The default input AudioDeviceInfo, or nil if not found or error.
+    public static func getDefaultInputDevice() -> AudioDeviceInfo? {
+        var deviceID: AudioDeviceID = .unknown
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let err = AudioObjectGetPropertyData(AudioObjectID.system, &address, 0, nil, &size, &deviceID)
+        guard err == noErr else { return nil }
+        return deviceInfo(for: deviceID)
+    }
+
+    /// Find input device by name (case-insensitive)
+    /// - Parameter name: The device name to search for.
+    /// - Returns: The input AudioDeviceInfo if found, or nil.
+    public static func findInputDevice(named name: String) -> AudioDeviceInfo? {
+        return listInputAudioDevices().first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    }
+}
+
+// Example usage:
+// let defaultInput = DeviceDiscovery.getDefaultInputDevice()
+// let usbMic = DeviceDiscovery.findInputDevice(named: "USB Microphone")
+
+// TODO: Add unit tests for input device discovery in DeviceDiscoveryTests.swift 

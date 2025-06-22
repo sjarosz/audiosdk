@@ -17,47 +17,110 @@ import CoreAudio
 public final class AudioRecorder {
     private let logger = Logger(subsystem: "com.audiocap.sdk", category: "AudioRecorder")
     private var tap: ProcessTap?
+    private var microphoneTap: MicrophoneTap?
     public var outputDirectory: URL?
-    /// Optional closure to run after a recording completes (can be used for post-processing or notifications)
+    /// Optional closure to run after a process recording completes
     public var postProcessingHandler: ((URL) -> Void)?
+    /// Optional closure for microphone post-processing
+    /// Called after microphone recording stops, with the file URL.
+    public var microphonePostProcessingHandler: ((URL) -> Void)?
 
     public init() {
         // On init, attempt to clean up any orphaned tap or aggregate devices left over from previous runs
         OrphanedResourceCleaner.cleanupOrphanedAudioObjects(logger: logger)
     }
 
-    /// Start recording output from a process.
+    /// Start recording with optional microphone input
     /// - Parameters:
-    ///   - pid: The PID of the target process whose audio will be tapped.
-    ///   - outputFile: File location to save the audio.
-    ///   - outputDeviceID: Optional output device ID (default: system output).
-    public func startRecording(pid: pid_t, outputFile: URL, outputDeviceID: Int? = nil) throws {
-        // Translate PID to the corresponding Core Audio object ID
-        let objectID = try AudioObjectID.translatePIDToProcessObjectID(pid: pid)
-        // Determine which device to route audio through (system output by default)
-        let resolvedOutputDevice: AudioDeviceID
-        if let outputDeviceID = outputDeviceID {
-            resolvedOutputDevice = AudioDeviceID(outputDeviceID)
-        } else {
-            resolvedOutputDevice = try AudioObjectID.readDefaultSystemOutputDevice()
+    ///   - pid: Process ID to record
+    ///   - outputFile: File for process audio
+    ///   - microphoneFile: Optional file for microphone audio
+    ///   - outputDeviceID: Optional output device (default: system output)
+    ///   - inputDeviceID: Optional input device (default: system input)
+    public func startRecording(
+        pid: pid_t,
+        outputFile: URL,
+        microphoneFile: URL? = nil,
+        outputDeviceID: Int? = nil,
+        inputDeviceID: Int? = nil
+    ) throws {
+        stopBothRecordings()
+        var processTap: ProcessTap?
+        var micTap: MicrophoneTap?
+        do {
+            // Start process tap
+            let objectID = try AudioObjectID.translatePIDToProcessObjectID(pid: pid)
+            let resolvedOutputDevice: AudioDeviceID = outputDeviceID != nil ? AudioDeviceID(outputDeviceID!) : try AudioObjectID.readDefaultSystemOutputDevice()
+            let newTap = ProcessTap(pid: pid, objectID: objectID, outputDeviceID: resolvedOutputDevice, logger: logger)
+            try newTap.startRecording(to: outputFile)
+            processTap = newTap
+
+            // Start microphone tap if requested
+            if let micFile = microphoneFile {
+                // Warn user if a specific device was requested, as the new implementation uses the default.
+                if inputDeviceID != nil {
+                    logger.warning("A specific input device ID was provided, but the current implementation only supports the default system input. The selection will be ignored.")
+                }
+                
+                let newMicTap = MicrophoneTap(logger: logger)
+                try newMicTap.startRecording(to: micFile)
+                micTap = newMicTap
+            }
+            self.tap = processTap
+            self.microphoneTap = micTap
+        } catch {
+            processTap?.stopRecording()
+            micTap?.stopRecording()
+            throw RecordingError.simultaneousRecordingFailed(error.localizedDescription)
         }
-        // Create and start a tap for the process
-        let newTap = ProcessTap(pid: pid, objectID: objectID, outputDeviceID: resolvedOutputDevice, logger: logger)
-        try newTap.startRecording(to: outputFile)
-        self.tap = newTap
     }
 
-    /// Stop any ongoing recording and trigger the post-processing handler if present.
+    /// Convenience method using device names
+    public func startRecording(
+        processName: String,
+        outputFile: URL,
+        microphoneFile: URL? = nil,
+        outputDeviceName: String? = nil,
+        inputDeviceName: String? = nil
+    ) throws {
+        guard let pid = AudioRecorder.pidForAudioCapableProcess(named: processName) else {
+            throw RecordingError.processNotFound(-1)
+        }
+        let outputDeviceID = outputDeviceName.flatMap { AudioRecorder.deviceIDForOutputDevice(named: $0) }
+        let inputDeviceID = inputDeviceName.flatMap { DeviceDiscovery.findInputDevice(named: $0)?.id }.map { Int($0) }
+        try startRecording(pid: pid, outputFile: outputFile, microphoneFile: microphoneFile, outputDeviceID: outputDeviceID, inputDeviceID: inputDeviceID)
+    }
+
+    /// Stop both process and microphone recordings, trigger post-processing handlers, and clean up resources.
     public func stopRecording() {
-        let fileURL = tap?.currentFileURL
+        stopBothRecordings()
+    }
 
+    private func stopBothRecordings() {
+        let processFileURL = tap?.currentFileURL
+        let micFileURL = microphoneTap?.currentFileURL
         tap?.stopRecording()
+        microphoneTap?.stopRecording()
         tap = nil
-
-        // Optionally perform post-processing (such as moving, uploading, etc.)
-        if let handler = postProcessingHandler, let url = fileURL {
+        microphoneTap = nil
+        if let handler = postProcessingHandler, let url = processFileURL {
             handler(url)
         }
+        if let micHandler = microphonePostProcessingHandler, let micURL = micFileURL {
+            micHandler(micURL)
+        }
+    }
+
+    /// Get currently recording microphone file URL
+    /// Returns the file URL being written to by the microphone tap, or nil if not recording.
+    public var currentMicrophoneFileURL: URL? {
+        return microphoneTap?.currentFileURL
+    }
+
+    /// Check if microphone recording is active
+    /// Returns true if microphone tap is recording, false otherwise.
+    public var isMicrophoneRecording: Bool {
+        return microphoneTap?.isActive ?? false
     }
 
     /// Enumerate output audio devices present on the system.
@@ -96,4 +159,17 @@ public final class AudioRecorder {
         return DeviceDiscovery.listOutputAudioDevices().first { $0.name.caseInsensitiveCompare(name) == .orderedSame }.map { Int($0.id) }
     }
 }
+
+// Example usage:
+// let recorder = AudioRecorder()
+// try recorder.startRecording(
+//     pid: 1234,
+//     outputFile: URL(fileURLWithPath: "/tmp/process.wav"),
+//     microphoneFile: URL(fileURLWithPath: "/tmp/mic.wav")
+// )
+// ...
+// recorder.stopRecording()
+
+// TODO: Add integration tests for AudioRecorder in AudioRecorderTests.swift
+
 

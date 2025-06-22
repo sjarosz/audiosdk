@@ -5,4 +5,12 @@
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Please allow access in order to capture audio from other apps.</string>
 </dict>
+<dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Please allow access in order to capture audio from other apps.</string>
+</dict>
+<dict>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Please allow access in order to capture audio from other apps.</string>
+</dict>
 </plist>

@@ -7,16 +7,25 @@ import OSLog
 let processNameToFind = "QuickTime Player" // Change to a process you expect to be running and audio-capable
 // Set your desired output device name here, or leave as nil to use the default system output device
 let outputDeviceName: String? = "Mac Studio Speakers" // Change to your device name, or set to nil
-let inputDeviceName: String?="Elgato Wave XLR"
+let inputDeviceName: String? = "Elgato Wave XLR"
 let logger = Logger(subsystem: "com.audiocap.testapp", category: "main")
 
 // Look up the device ID for the given output device name using the SDK helper
-let selectedDeviceID: Int? = outputDeviceName.flatMap { AudioRecorder.deviceIDForOutputDevice(named: $0) }
+let selectedOutputDeviceID: Int? = outputDeviceName.flatMap { AudioRecorder.deviceIDForOutputDevice(named: $0) }
+let selectedInputDeviceID: Int? = inputDeviceName.flatMap { name in
+    DeviceDiscovery.findInputDevice(named: name).map { Int($0.id) }
+}
 
-if let id = selectedDeviceID {
+if let id = selectedOutputDeviceID {
     logger.log("JRSZ Output device '\(outputDeviceName ?? "")' has ID: \(id)")
 } else {
     logger.log("JRSZ Output device '\(outputDeviceName ?? "")' not found.")
+}
+
+if let id = selectedInputDeviceID {
+    logger.log("JRSZ Input device '\(inputDeviceName ?? "")' has ID: \(id)")
+} else {
+    logger.log("JRSZ Input device '\(inputDeviceName ?? "")' not found.")
 }
 
 // --- Optional: Print all available output audio devices (toggle with if (1 == 1/0)) ---
@@ -78,13 +87,18 @@ do {
 
 // Optional: Set a post-processing handler for after recording stops
 recorder.postProcessingHandler = { fileURL in
-    logger.log("✅ Post-processing recording at: \(fileURL.path)")
+    logger.log("✅ Post-processing process recording at: \(fileURL.path)")
+}
+
+recorder.microphonePostProcessingHandler = { fileURL in
+    logger.log("✅ Post-processing microphone recording at: \(fileURL.path)")
 }
 
 let dateFormatter = DateFormatter()
 dateFormatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
 let dateString = dateFormatter.string(from: Date())
-let outputFileURL = outputDir.appendingPathComponent("recording-\(dateString).wav")
+let outputFileURL = outputDir.appendingPathComponent("process-recording-\(dateString).wav")
+let micFileURL = outputDir.appendingPathComponent("mic-recording-\(dateString).wav")
 
 guard let pid = targetPID else {
     logger.error("❌ No valid target PID. Exiting.")
@@ -93,7 +107,13 @@ guard let pid = targetPID else {
 
 do {
     logger.log("▶️ Starting recording for PID \(pid)...")
-    try recorder.startRecording(pid: pid, outputFile: outputFileURL, outputDeviceID: selectedDeviceID)
+    try recorder.startRecording(
+        pid: pid,
+        outputFile: outputFileURL,
+        microphoneFile: micFileURL,
+        outputDeviceID: selectedOutputDeviceID,
+        inputDeviceID: selectedInputDeviceID
+    )
     logger.log("...Recording for 5 seconds...")
     sleep(5)
     logger.log("⏹️ Stopping recording.")
