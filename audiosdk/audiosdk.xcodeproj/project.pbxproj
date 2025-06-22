@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		597D83492E06CB960057B7AA /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 597D83482E06CB960057B7AA /* AVFoundation.framework */; };
-		597D834B2E06CBA80057B7AA /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 597D834A2E06CBA80057B7AA /* CoreAudio.framework */; };
 		59ABA2D92E06D95C0019FC04 /* libaudiosdk.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 597D83392E06BFA40057B7AA /* libaudiosdk.dylib */; };
 		59ABA2DA2E06D95C0019FC04 /* libaudiosdk.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = 597D83392E06BFA40057B7AA /* libaudiosdk.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -71,8 +69,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				597D834B2E06CBA80057B7AA /* CoreAudio.framework in Frameworks */,
-				597D83492E06CB960057B7AA /* AVFoundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -385,6 +381,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = com.lunarclass;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -396,6 +393,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = com.lunarclass;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_VERSION = 5.0;

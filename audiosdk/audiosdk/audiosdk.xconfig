@@ -1,0 +1,12 @@
+//
+//  audiosdk.xcconfig
+//  AudioCap
+//
+//  Created by Gemini on 2024-07-26.
+//
+
+// Link against necessary audio frameworks
+OTHER_LDFLAGS = $(inherited) -framework AVFoundation -framework AudioToolbox -framework CoreAudio
+
+// Inherit the main app's Swift flags to ensure consistent compilation
+#include "Main.xcconfig" 
