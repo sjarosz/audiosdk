@@ -26,12 +26,16 @@ public final class AudioRecorder {
         cleanupOrphanedAudioObjects()
     }
 
-    public func startRecording(pid: pid_t, outputFile: URL) throws {
+    public func startRecording(pid: pid_t, outputFile: URL, outputDeviceID: Int? = nil) throws {
         let objectID = try AudioObjectID.translatePIDToProcessObjectID(pid: pid)
-        
-        let newTap = ProcessTap(pid: pid, objectID: objectID, logger: logger)
+        let resolvedOutputDevice: AudioDeviceID
+        if let outputDeviceID = outputDeviceID {
+            resolvedOutputDevice = AudioDeviceID(outputDeviceID)
+        } else {
+            resolvedOutputDevice = try AudioObjectID.readDefaultSystemOutputDevice()
+        }
+        let newTap = ProcessTap(pid: pid, objectID: objectID, outputDevice: resolvedOutputDevice, logger: logger)
         try newTap.startRecording(to: outputFile)
-
         self.tap = newTap
     }
 
@@ -110,6 +114,52 @@ public final class AudioRecorder {
         }
         logger.info("Orphaned SDK-Tap device/process tap cleanup complete.")
     }
+
+    public struct AudioDeviceInfo {
+        public let id: AudioDeviceID
+        public let name: String
+    }
+
+    public static func listOutputAudioDevices() -> [AudioDeviceInfo] {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        var status = AudioObjectGetPropertyDataSize(AudioObjectID.system, &propertyAddress, 0, nil, &dataSize)
+        guard status == noErr else { return [] }
+        let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: deviceCount)
+        status = AudioObjectGetPropertyData(AudioObjectID.system, &propertyAddress, 0, nil, &dataSize, &deviceIDs)
+        guard status == noErr else { return [] }
+        var outputDevices: [AudioDeviceInfo] = []
+        for deviceID in deviceIDs {
+            var name: CFString = "" as CFString
+            var nameSize = UInt32(MemoryLayout<CFString?>.size)
+            var nameAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioObjectPropertyName,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let nameStatus = withUnsafeMutablePointer(to: &name) {
+                AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, $0)
+            }
+            if nameStatus != noErr { continue }
+            // Check if device has output scope
+            var streamsSize: UInt32 = 0
+            var streamsAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyStreams,
+                mScope: kAudioDevicePropertyScopeOutput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let streamsStatus = AudioObjectGetPropertyDataSize(deviceID, &streamsAddress, 0, nil, &streamsSize)
+            if streamsStatus == noErr, streamsSize > 0 {
+                outputDevices.append(AudioDeviceInfo(id: deviceID, name: name as String))
+            }
+        }
+        return outputDevices
+    }
 }
 
 // MARK: - Internal Implementation (based on the working app code)
@@ -117,6 +167,7 @@ public final class AudioRecorder {
 fileprivate final class ProcessTap {
     private let pid: pid_t
     private let objectID: AudioObjectID
+    private let outputDevice: AudioDeviceID
     private let logger: Logger
     private let queue = DispatchQueue(label: "ProcessTapRecorder", qos: .userInitiated)
 
@@ -131,9 +182,10 @@ fileprivate final class ProcessTap {
         return currentFile?.url
     }
 
-    init(pid: pid_t, objectID: AudioObjectID, logger: Logger) {
+    init(pid: pid_t, objectID: AudioObjectID, outputDevice: AudioDeviceID, logger: Logger) {
         self.pid = pid
         self.objectID = objectID
+        self.outputDevice = outputDevice
         self.logger = logger
     }
 
@@ -153,8 +205,7 @@ fileprivate final class ProcessTap {
         guard err == noErr else { throw RecordingError.general("Failed to create process tap: \(osStatusDescription(err))") }
         self.processTapID = tapID
 
-        let systemOutputID = try AudioObjectID.readDefaultSystemOutputDevice()
-        let outputUID = try systemOutputID.readDeviceUID()
+        let outputUID = try outputDevice.readDeviceUID()
         let aggregateUID = UUID().uuidString
 
         let description: [String: Any] = [
