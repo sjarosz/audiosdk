@@ -5,20 +5,10 @@ import OSLog
 import Security
 import Accelerate
 import Darwin
+import CoreAudio
+//import AudioSDK_Core
 
-// MARK: - Error Definitions
 
-/// Errors thrown by the AudioRecorder, with localized human-readable description.
-public enum RecordingError: Error, LocalizedError {
-    case general(String)
-
-    public var errorDescription: String? {
-        switch self {
-        case .general(let message):
-            return message
-        }
-    }
-}
 
 // MARK: - Audio Recorder SDK
 
@@ -138,12 +128,6 @@ public final class AudioRecorder {
         logger.info("Orphaned SDK-Tap device/process tap cleanup complete.")
     }
 
-    // Helper struct to describe an audio device (used by UI and for selecting recording targets)
-    public struct AudioDeviceInfo {
-        public let id: AudioDeviceID
-        public let name: String
-    }
-
     /// Enumerate output audio devices present on the system.
     public static func listOutputAudioDevices() -> [AudioDeviceInfo] {
         var propertyAddress = AudioObjectPropertyAddress(
@@ -171,6 +155,18 @@ public final class AudioRecorder {
                 AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, $0)
             }
             if nameStatus != noErr { continue }
+            // Fetch UID
+            var uid: CFString = "" as CFString
+            var uidSize = UInt32(MemoryLayout<CFString?>.size)
+            var uidAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceUID,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let uidStatus = withUnsafeMutablePointer(to: &uid) {
+                AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, $0)
+            }
+            if uidStatus != noErr { continue }
             // Only include devices that actually have output audio streams
             var streamsSize: UInt32 = 0
             var streamsAddress = AudioObjectPropertyAddress(
@@ -180,7 +176,7 @@ public final class AudioRecorder {
             )
             let streamsStatus = AudioObjectGetPropertyDataSize(deviceID, &streamsAddress, 0, nil, &streamsSize)
             if streamsStatus == noErr, streamsSize > 0 {
-                outputDevices.append(AudioDeviceInfo(id: deviceID, name: name as String))
+                outputDevices.append(AudioDeviceInfo(id: deviceID, name: name as String, uid: uid as String, isInput: false, isOutput: true))
             }
         }
         return outputDevices
@@ -213,6 +209,18 @@ public final class AudioRecorder {
                 AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, $0)
             }
             if nameStatus != noErr { continue }
+            // Fetch UID
+            var uid: CFString = "" as CFString
+            var uidSize = UInt32(MemoryLayout<CFString?>.size)
+            var uidAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceUID,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let uidStatus = withUnsafeMutablePointer(to: &uid) {
+                AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, $0)
+            }
+            if uidStatus != noErr { continue }
             // Only include devices that actually have input audio streams
             var streamsSize: UInt32 = 0
             var streamsAddress = AudioObjectPropertyAddress(
@@ -222,7 +230,7 @@ public final class AudioRecorder {
             )
             let streamsStatus = AudioObjectGetPropertyDataSize(deviceID, &streamsAddress, 0, nil, &streamsSize)
             if streamsStatus == noErr, streamsSize > 0 {
-                inputDevices.append(AudioDeviceInfo(id: deviceID, name: name as String))
+                inputDevices.append(AudioDeviceInfo(id: deviceID, name: name as String, uid: uid as String, isInput: true, isOutput: false))
             }
         }
         return inputDevices
@@ -444,167 +452,5 @@ fileprivate final class ProcessTap {
         if isRecording {
             stopRecording()
         }
-    }
-}
-
-
-// MARK: - CoreAudio Helpers (from CoreAudioUtils.swift)
-
-/// Extension to AudioObjectID for common Core Audio queries and safe property reading.
-/// These helpers encapsulate gnarly Core Audio API details and error handling.
-fileprivate extension AudioObjectID {
-    /// The CoreAudio "system object" representing the audio hardware controller.
-    static let system = AudioObjectID(kAudioObjectSystemObject)
-    /// Convenience for checking validity (Core Audio uses 0 as 'unknown')
-    static let unknown = kAudioObjectUnknown
-    var isValid: Bool { self != .unknown }
-
-    /// Returns the AudioDeviceID for the default output device (current speakers/headphones).
-    /// - Throws: RecordingError if CoreAudio call fails.
-    static func readDefaultSystemOutputDevice() throws -> AudioDeviceID {
-        var deviceID: AudioDeviceID = .unknown
-        // Address for the default output device property on system object
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultSystemOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        // Query Core Audio for the default output device
-        let err = AudioObjectGetPropertyData(.system, &address, 0, nil, &size, &deviceID)
-        guard err == noErr else {
-            throw RecordingError.general("Failed to get default system output device: \(osStatusDescription(err))")
-        }
-        return deviceID
-    }
-
-    /// Looks up the AudioObjectID associated with a process PID (if the process outputs audio).
-    /// - Why: CoreAudio allows direct tapping of a process if you have its object ID.
-    /// - Throws: RecordingError if translation fails or PID doesn't map to a Core Audio object.
-    static func translatePIDToProcessObjectID(pid: pid_t) throws -> AudioObjectID {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var processID = pid
-        var objectID: AudioObjectID = .unknown
-        var size = UInt32(MemoryLayout<AudioObjectID>.size)
-        // Core Audio API: asks the system for the audio object tied to a PID
-        let err = AudioObjectGetPropertyData(
-            AudioObjectID.system,
-            &address,
-            UInt32(MemoryLayout.size(ofValue: processID)), // size of input PID
-            &processID,  // input: pointer to PID
-            &size,
-            &objectID    // output: object ID for process
-        )
-        guard err == noErr else {
-            throw RecordingError.general("Failed to translate PID to object ID: \(osStatusDescription(err))")
-        }
-        guard objectID != .unknown else {
-            throw RecordingError.general("Process \(pid) has no audio object representation")
-        }
-        return objectID
-    }
-
-    /// Reads the unique device identifier string (UID) for this AudioObjectID.
-    /// - Returns: CoreAudio device UID (used for aggregate device construction and identification).
-    func readDeviceUID() throws -> String {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceUID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
-        var uid: CFString = "" as CFString
-        var size = UInt32(MemoryLayout<CFString?>.size)
-        // Standard Core Audio property read pattern using a pointer to a CFString
-        let err = withUnsafeMutablePointer(to: &uid) {
-            AudioObjectGetPropertyData(self, &address, 0, nil, &size, $0)
-        }
-        guard err == noErr else {
-            throw RecordingError.general("Failed to read device UID for object \(self): \(osStatusDescription(err))")
-        }
-        return uid as String
-    }
-
-    /// Reads the audio stream format description for a tap or device object.
-    /// - Returns: AudioStreamBasicDescription (sample rate, channel count, format, etc).
-    func readAudioTapStreamBasicDescription() throws -> AudioStreamBasicDescription {
-        var description = AudioStreamBasicDescription()
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioTapPropertyFormat, // Tap-specific selector
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
-        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
-        let err = AudioObjectGetPropertyData(self, &address, 0, nil, &size, &description)
-        guard err == noErr else {
-            throw RecordingError.general("Failed to read audio tap stream description for object \(self): \(osStatusDescription(err))")
-        }
-        return description
-    }
-
-    /// Generic property reader for any CoreAudio property, returns type-safe value.
-    /// Can read strings, integers, structs, etc. Handles memory and error cleanup.
-    /// - Parameters:
-    ///   - property: The AudioObjectPropertySelector to query.
-    ///   - defaultValue: If provided, used as a fallback.
-    /// - Throws: RecordingError if property is not available or of unexpected type.
-    func read<T>(_ property: AudioObjectPropertySelector, defaultValue: T? = nil) throws -> T {
-        var address = AudioObjectPropertyAddress(
-            mSelector: property,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var size: UInt32 = 0
-        // Step 1: Query the property size
-        var err = AudioObjectGetPropertyDataSize(self, &address, 0, nil, &size)
-        guard err == noErr else {
-            throw RecordingError.general("Failed to read size for property \(property) on object \(self): \(osStatusDescription(err))")
-        }
-        // Step 2: Allocate a pointer to hold the value
-        let pointer = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<T>.alignment)
-        defer { pointer.deallocate() }
-        // Step 3: Query property data
-        err = AudioObjectGetPropertyData(self, &address, 0, nil, &size, pointer)
-        guard err == noErr else {
-            throw RecordingError.general("Failed to read data for property \(property) on object \(self): \(osStatusDescription(err))")
-        }
-        // Special-case for CFString -> String conversions
-        if T.self == String.self {
-            let cfString = pointer.load(as: CFString.self)
-            return (cfString as String) as! T
-        }
-        // Otherwise, load as raw type (structs, ints, etc.)
-        return pointer.load(as: T.self)
-    }
-}
-
-/// Returns a human-readable error string for an OSStatus code.
-/// Uses Security.framework for common codes; tries FourCC if printable, else decimal fallback.
-/// - Parameter status: OSStatus to decode.
-/// - Returns: A developer-friendly error description.
-private func osStatusDescription(_ status: OSStatus) -> String {
-    // Try Security.framework first (covers many standard errors)
-    if let errorMessage = SecCopyErrorMessageString(status, nil) {
-        return (errorMessage as String)
-    }
-
-    // Attempt to decode as a FourCC (four-character code)
-    var code = status.bigEndian
-    let cString: [CChar] = [
-        CChar(truncatingIfNeeded: (code >> 24) & 0xFF),
-        CChar(truncatingIfNeeded: (code >> 16) & 0xFF),
-        CChar(truncatingIfNeeded: (code >> 8) & 0xFF),
-        CChar(truncatingIfNeeded: code & 0xFF),
-        0 // Null terminator
-    ]
-    // Only print as FourCC if all chars are printable ASCII
-    let isPrintable = cString.dropLast().allSatisfy { isprint(Int32($0)) != 0 }
-
-    if isPrintable,
-       let fourCC = String(cString: cString, encoding: .ascii)?.trimmingCharacters(in: .whitespaces),
-       !fourCC.isEmpty {
-        return "'\(fourCC)' (\(status))"
-    } else {
-        return "Error code \(status)"
     }
 }
