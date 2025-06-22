@@ -13,6 +13,7 @@
 - **Automatic Resource Cleanup**: Cleans up orphaned CoreAudio devices/taps on startup.
 - **Post-Processing Hooks**: Easily add normalization, transcoding, or notifications after recording.
 - **Device Selection**: Record from the default output or any specific output device.
+- **Audio-Capable Process Discovery**: List all running processes that are recognized by CoreAudio as audio-capable (see below).
 
 ---
 
@@ -24,6 +25,7 @@
 - Lets you select the output device (e.g., built-in speakers, external audio).
 - Provides real-time audio analysis hooks (RMS, dB).
 - Ensures all CoreAudio resources are cleaned up, even after crashes.
+- **Enumerates audio-capable processes** for easy selection and UI integration.
 
 ---
 
@@ -46,7 +48,18 @@ for device in devices {
 }
 ```
 
-### 2. Start Recording
+### 2. List Audio-Capable Processes
+
+```swift
+let audioProcs = AudioRecorder.listAudioCapableProcesses()
+for (pid, name) in audioProcs {
+    print("Audio-capable process: \(name) [PID: \(pid)]")
+}
+```
+
+*This function returns all running processes that CoreAudio recognizes as having an audio object. These are the only processes you can tap for audio output. Note: This does not guarantee the process is currently producing audio, only that it is recognized by CoreAudio as audio-capable.*
+
+### 3. Start Recording
 
 ```swift
 let recorder = AudioRecorder()
@@ -57,13 +70,13 @@ let deviceID: Int? = /* e.g. 62, or nil for default */
 try recorder.startRecording(pid: pid, outputFile: outputURL, outputDeviceID: deviceID)
 ```
 
-### 3. Stop Recording
+### 4. Stop Recording
 
 ```swift
 recorder.stopRecording()
 ```
 
-### 4. Post-Processing
+### 5. Post-Processing
 
 Optionally, set a closure to run after recording stops:
 
@@ -86,6 +99,11 @@ for device in devices {
     print("\(device.name) [ID: \(device.id)]")
 }
 
+let audioProcs = AudioRecorder.listAudioCapableProcesses()
+for (pid, name) in audioProcs {
+    print("Audio-capable process: \(name) [PID: \(pid)]")
+}
+
 let recorder = AudioRecorder()
 let pid: pid_t = 12345 // Replace with your target app's PID
 let outputURL = URL(fileURLWithPath: "/Users/yourname/Desktop/recording.wav")
@@ -103,6 +121,7 @@ recorder.stopRecording()
 - **Permissions**: Your app may need microphone/audio capture permissions.
 - **Format**: Default output is `.wav` (uncompressed PCM). You can change this in your app.
 - **Process Must Be Running**: The target PID must be valid and producing audio.
+- **Audio-Capable Process Discovery**: Only processes recognized by CoreAudio as having an audio object can be tapped for output.
 
 ---
 

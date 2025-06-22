@@ -4,6 +4,7 @@ import AVFoundation
 import OSLog
 import Security
 import Accelerate
+import Darwin
 
 // MARK: - Error Definitions
 
@@ -183,6 +184,37 @@ public final class AudioRecorder {
             }
         }
         return outputDevices
+    }
+
+    /// Returns a list of running processes that are audio-capable (i.e., have a valid CoreAudio object).
+    ///
+    /// This function enumerates all running processes on the system and attempts to translate each PID
+    /// to a CoreAudio AudioObjectID. Only processes that CoreAudio recognizes as having an audio object
+    /// (i.e., are capable of being tapped for audio output) are included in the result.
+    ///
+    /// - Returns: An array of (pid, name) tuples for all audio-capable processes.
+    /// - Note: This does not guarantee the process is currently producing audio, only that it is recognized by CoreAudio.
+    public static func listAudioCapableProcesses() -> [(pid: pid_t, name: String)] {
+        var result: [(pid_t, String)] = []
+        // Get all running PIDs using Darwin's proc_listallpids
+        var procCount = proc_listallpids(nil, 0)
+        guard procCount > 0 else { return [] }
+        var pids = [pid_t](repeating: 0, count: Int(procCount))
+        procCount = proc_listallpids(&pids, Int32(MemoryLayout<pid_t>.size * pids.count))
+        for pid in pids where pid > 0 {
+            // Get process name using proc_name
+            var nameBuf = [CChar](repeating: 0, count: 1024)
+            let nameResult = proc_name(pid, &nameBuf, UInt32(nameBuf.count))
+            let procName = nameResult > 0 ? String(cString: nameBuf) : "(unknown)"
+            // Try to get AudioObjectID for this PID; if it throws, the process is not audio-capable
+            do {
+                _ = try AudioObjectID.translatePIDToProcessObjectID(pid: pid)
+                result.append((pid, procName))
+            } catch {
+                continue // PID not associated with audio
+            }
+        }
+        return result
     }
 }
 

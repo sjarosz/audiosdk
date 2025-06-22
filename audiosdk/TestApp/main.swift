@@ -11,6 +11,13 @@ for device in devices {
     logger.log("  \(device.name, privacy: .public) [ID: \(device.id)]")
 }
 
+// Print all audio-capable processes
+let audioProcs = AudioRecorder.listAudioCapableProcesses()
+logger.log("JRSZ Audio-capable processes:")
+for (pid, name) in audioProcs {
+    logger.log("  \(name, privacy: .public) [PID: \(pid)]")
+}
+
 // --- Configuration ---
 let targetPID: pid_t = 39198 // Example PID, please change
 // Hardcode your desired device ID here after running the app once to see the list
