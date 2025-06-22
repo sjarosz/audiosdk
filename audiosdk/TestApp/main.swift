@@ -2,24 +2,44 @@ import Foundation
 import audiosdk
 import OSLog
 
+// --- Configuration ---
+// Set the name of the process you want to record from (must be audio-capable, see below)
+let processNameToFind = "QuickTime Player" // Change to a process you expect to be running and audio-capable
+// Set your desired output device name here, or leave as nil to use the default system output device
+let outputDeviceName: String? = "Mac Studio Speakers" // Change to your device name, or set to nil
 let logger = Logger(subsystem: "com.audiocap.testapp", category: "main")
 
-// Print all available output audio devices
-let devices = AudioRecorder.listOutputAudioDevices()
-logger.log("JRSZ Available audio output devices:")
-for device in devices {
-    logger.log("  \(device.name, privacy: .public) [ID: \(device.id)]")
+// Look up the device ID for the given output device name using the SDK helper
+let selectedDeviceID: Int? = outputDeviceName.flatMap { AudioRecorder.deviceIDForOutputDevice(named: $0) }
+
+if let id = selectedDeviceID {
+    logger.log("JRSZ Output device '\(outputDeviceName ?? "")' has ID: \(id)")
+} else {
+    logger.log("JRSZ Output device '\(outputDeviceName ?? "")' not found.")
 }
 
-// Print all audio-capable processes
-let audioProcs = AudioRecorder.listAudioCapableProcesses()
-logger.log("JRSZ Audio-capable processes:")
-for (pid, name) in audioProcs {
-    logger.log("  \(name, privacy: .public) [PID: \(pid)]")
+// --- Optional: Print all available output audio devices (toggle with if (1 == 1/0)) ---
+if (1 == 0) { // Print all available output audio devices
+    // Uses: AudioRecorder.listOutputAudioDevices()
+    let devices = AudioRecorder.listOutputAudioDevices()
+    logger.log("JRSZ Available audio output devices:")
+    for device in devices {
+        logger.log("  \(device.name, privacy: .public) [ID: \(device.id)]")
+    }
 }
 
-// Example: Find the PID for a known audio-capable process by name
-let processNameToFind = "QuickTime Player" // Change to a process you expect to be running and audio-capable
+// --- Optional: Print all audio-capable processes (toggle with if (1 == 1/0)) ---
+if (1 == 0) { // Print all audio-capable processes
+    // Uses: AudioRecorder.listAudioCapableProcesses()
+    let audioProcs = AudioRecorder.listAudioCapableProcesses()
+    logger.log("JRSZ Audio-capable processes:")
+    for (pid, name) in audioProcs {
+        logger.log("  \(name, privacy: .public) [PID: \(pid)]")
+    }
+}
+
+// --- Find the PID for a known audio-capable process by name ---
+// Uses: AudioRecorder.pidForAudioCapableProcess(named:)
 var targetPID: pid_t? = nil
 if let foundPID = AudioRecorder.pidForAudioCapableProcess(named: processNameToFind) {
     logger.log("JRSZ PID for process '\(processNameToFind, privacy: .public)': \(foundPID)")
@@ -28,10 +48,7 @@ if let foundPID = AudioRecorder.pidForAudioCapableProcess(named: processNameToFi
     logger.log("JRSZ No audio-capable process found with name '\(processNameToFind, privacy: .public)'")
 }
 
-// --- Configuration ---
-// Hardcode your desired device ID here after running the app once to see the list
-let selectedDeviceID = 107
-
+// --- Standard SDK usage for recording ---
 let recorder = AudioRecorder()
 
 guard let desktopURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first else {
@@ -48,6 +65,7 @@ do {
     exit(1)
 }
 
+// Optional: Set a post-processing handler for after recording stops
 recorder.postProcessingHandler = { fileURL in
     logger.log("✅ Post-processing recording at: \(fileURL.path)")
 }
@@ -65,7 +83,6 @@ guard let pid = targetPID else {
 do {
     logger.log("▶️ Starting recording for PID \(pid)...")
     try recorder.startRecording(pid: pid, outputFile: outputFileURL, outputDeviceID: selectedDeviceID)
-    //try recorder.startRecording(pid: targetPID, outputFile: outputFileURL)
     logger.log("...Recording for 5 seconds...")
     sleep(5)
     logger.log("⏹️ Stopping recording.")

@@ -224,6 +224,14 @@ public final class AudioRecorder {
         let procs = listAudioCapableProcesses()
         return procs.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.pid
     }
+
+    /// Returns the device ID (as Int) for the first output device matching the given name (case-insensitive).
+    /// - Parameter name: The device name to search for.
+    /// - Returns: The device ID as Int if found, or nil if not found.
+    public static func deviceIDForOutputDevice(named name: String) -> Int? {
+        let devices = listOutputAudioDevices()
+        return devices.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }.map { Int($0.id) }
+    }
 }
 
 // MARK: - Internal Implementation (ProcessTap)
