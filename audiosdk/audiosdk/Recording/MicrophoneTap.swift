@@ -2,15 +2,18 @@
 //  MicrophoneTap.swift
 //  AudioSDK
 //
-//  Manages input device (microphone) recording lifecycle.
+//  Manages microphone recording using AVAudioEngine.
 //
 
 import Foundation
 import AVFoundation
 import OSLog
 
-/// Manages input device (microphone) recording lifecycle.
-/// Handles permission, format, file writing, and resource cleanup for input device audio capture.
+/// Manages recording from the system's default input device using `AVAudioEngine`.
+///
+/// This class handles microphone permissions, audio capture, and file writing.
+/// It is a high-level abstraction over `AVAudioEngine` and does not support
+/// selection of a specific input device; it will always use the system default.
 internal final class MicrophoneTap {
     /// Logger for diagnostics
     private let logger: Logger
@@ -27,16 +30,20 @@ internal final class MicrophoneTap {
     /// True if currently recording
     var isActive: Bool { isRecording }
 
-    /// Initialize a MicrophoneTap for a given input device
-    /// - Parameters:
-    ///   - logger: Logger for diagnostics
+    /// Initializes the microphone tap.
+    /// - Parameter logger: A logger for diagnostics.
     init(logger: Logger) {
         self.logger = logger
     }
 
-    /// Start recording from the input device to a file
-    /// - Parameter fileURL: The file to write audio to
-    /// - Throws: RecordingError if permission, format, or device issues occur
+    /// Starts recording from the default microphone to the specified file.
+    ///
+    /// This function will request microphone permission if it has not already been granted.
+    /// It configures the audio engine, installs a tap on the input node, and starts writing
+    /// audio data to the file.
+    /// - Parameter fileURL: The URL of the file to write the recording to.
+    /// - Throws: A `RecordingError` if permission is denied, the audio format is invalid,
+    ///   or the audio engine fails to start.
     func startRecording(to fileURL: URL) throws {
         guard !isRecording else {
             logger.warning("startRecording() called while already recording.")
@@ -85,7 +92,7 @@ internal final class MicrophoneTap {
         }
     }
 
-    /// Stop recording and clean up resources
+    /// Stops the recording, removes the audio tap, and cleans up resources.
     func stopRecording() {
         guard isRecording else { return }
         logger.debug("Stopping microphone recording...")
@@ -103,7 +110,11 @@ internal final class MicrophoneTap {
         }
     }
 
-    /// Check microphone permission synchronously
+    /// Checks for microphone permission and requests it if necessary.
+    ///
+    /// This function synchronously checks the current authorization status. If it's
+    /// `notDetermined`, it will block while prompting the user for permission.
+    /// - Returns: `true` if permission is granted, `false` otherwise.
     private func checkMicrophonePermission() throws -> Bool {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
 

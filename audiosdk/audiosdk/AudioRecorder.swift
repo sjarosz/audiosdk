@@ -12,8 +12,9 @@ import CoreAudio
 
 // MARK: - Audio Recorder SDK
 
-/// High-level object for managing per-process audio capture via Core Audio.
-/// Handles starting/stopping taps, device cleanup, and output file coordination.
+/// High-level object for managing audio capture.
+/// Handles simultaneous recording of a process's output audio via a Core Audio tap
+/// and the system's default microphone input via AVAudioEngine.
 public final class AudioRecorder {
     private let logger = Logger(subsystem: "com.audiocap.sdk", category: "AudioRecorder")
     private var tap: ProcessTap?
@@ -21,7 +22,7 @@ public final class AudioRecorder {
     public var outputDirectory: URL?
     /// Optional closure to run after a process recording completes
     public var postProcessingHandler: ((URL) -> Void)?
-    /// Optional closure for microphone post-processing
+    /// Optional closure for microphone post-processing.
     /// Called after microphone recording stops, with the file URL.
     public var microphonePostProcessingHandler: ((URL) -> Void)?
 
@@ -35,8 +36,8 @@ public final class AudioRecorder {
     ///   - pid: Process ID to record
     ///   - outputFile: File for process audio
     ///   - microphoneFile: Optional file for microphone audio
-    ///   - outputDeviceID: Optional output device (default: system output)
-    ///   - inputDeviceID: Optional input device (default: system input)
+    ///   - outputDeviceID: Optional output device for the process tap (default: system output)
+    ///   - inputDeviceID: **Ignored.** This parameter is reserved for future use. Microphone recording currently uses the system's default input device.
     public func startRecording(
         pid: pid_t,
         outputFile: URL,
@@ -76,6 +77,12 @@ public final class AudioRecorder {
     }
 
     /// Convenience method using device names
+    /// - Parameters:
+    ///   - processName: The name of the process to record
+    ///   - outputFile: File for process audio
+    ///   - microphoneFile: Optional file for microphone audio
+    ///   - outputDeviceName: Optional output device name for the process tap
+    ///   - inputDeviceName: **Ignored.** This parameter is reserved for future use. Microphone recording currently uses the system's default input device.
     public func startRecording(
         processName: String,
         outputFile: URL,
@@ -163,7 +170,7 @@ public final class AudioRecorder {
 // Example usage:
 // let recorder = AudioRecorder()
 // try recorder.startRecording(
-//     pid: 1234,
+//     processName: "QuickTime Player",
 //     outputFile: URL(fileURLWithPath: "/tmp/process.wav"),
 //     microphoneFile: URL(fileURLWithPath: "/tmp/mic.wav")
 // )

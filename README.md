@@ -1,153 +1,144 @@
-# audiosdk
+# AudioRecorder SDK
 
-**audiosdk** is a modern Swift framework for macOS 14.4+ that enables programmatic recording of audio output from any running application, using Apple's latest CoreAudio process tap APIs. It is inspired by the advanced patterns in [AudioCap](https://github.com/insidegui/AudioCap), but is designed for easy integration into your own apps and tools.
-
----
-
-## ✨ Key Benefits
-
-- **Record Any App's Audio**: Capture output from any running process by PID, not just system-wide audio.
-- **Modern CoreAudio**: Uses Apple's new process tap APIs (`AudioHardwareCreateProcessTap`), available in macOS 14.4+.
-- **No Kernel Extensions**: Pure user-space solution—no drivers, no hacks, no security prompts.
-- **Clean Swift API**: Simple, developer-friendly interface with robust error handling.
-- **Automatic Resource Cleanup**: Cleans up orphaned CoreAudio devices/taps on startup.
-- **Post-Processing Hooks**: Easily add normalization, transcoding, or notifications after recording.
-- **Device Selection**: Record from the default output or any specific output device.
-- **Audio-Capable Process Discovery**: List all running processes that are recognized by CoreAudio as audio-capable (see below).
-- **Process Name Lookup**: Find the PID for a process by name from the audio-capable list.
+**AudioRecorder** is a modern Swift framework for macOS that enables programmatic audio capture from any running application and the system's default microphone—simultaneously. It uses Apple's latest Core Audio process tap APIs and the modern `AVAudioEngine` framework to provide a simple, powerful, and safe way to record audio without kernel extensions.
 
 ---
 
-## 🚀 What Does It Do?
+## ✨ Features
 
-- Translates a process PID to a CoreAudio object.
-- Creates a process tap and aggregate device for that process.
-- Streams audio data to a `.wav` file (or other formats if you wish).
-- Lets you select the output device (e.g., built-in speakers, external audio) by name or ID.
-- Provides real-time audio analysis hooks (RMS, dB).
-- Ensures all CoreAudio resources are cleaned up, even after crashes.
-- **Enumerates audio-capable processes** for easy selection and UI integration.
-- **Looks up PIDs by process name** for convenience in scripting and automation.
+- **Record Any App's Audio**: Capture the audio output from any running process by its PID.
+- **Simultaneous Microphone Recording**: Record from the system's default microphone at the same time as the process audio, saved to a separate file.
+- **Modern & Safe**: Uses Apple's new user-space APIs (`AudioHardwareCreateProcessTap` on macOS 14.4+ and `AVAudioEngine`), requiring no kernel extensions or hacks.
+- **Clean Swift API**: A simple, developer-friendly interface with robust error handling and clear documentation.
+- **Device & Process Discovery**: Helper utilities to list all available audio devices and find audio-capable processes by name.
+- **Automatic Resource Cleanup**: Ensures all Core Audio resources are cleaned up on exit, preventing orphaned audio devices.
+- **Post-Processing Hooks**: Provides separate completion handlers for both the process and microphone recordings.
+- **Selectable Output Device**: Choose a specific output device for the process audio tap, or use the system default.
 
 ---
 
 ## 🛠️ Requirements
 
-- **macOS 14.4 or later** (due to new CoreAudio APIs)
+- macOS 14.4 or later
 - Swift 5.9+
 - Xcode 15+
 
 ---
 
-## 🧑‍💻 Usage
+## 🧑‍💻 How It Works
 
-### 1. List Available Output Devices
+- **For Process Audio**: It translates a process PID to a Core Audio object, creates a process tap for it, and wraps it in an aggregate device to capture the audio stream.
+- **For Microphone Audio**: It uses a modern `AVAudioEngine` instance to capture audio from the system's default input device.
+- **Synchronization**: Both recordings are started and stopped together, managed by a single `startRecording()` and `stopRecording()` call.
+- **File Output**: Each stream is written to a separate `.wav` file.
 
-```swift
-let devices = AudioRecorder.listOutputAudioDevices()
-for device in devices {
-    print("\(device.name) [ID: \(device.id)]") // .id is the outputDeviceID
-}
-```
+---
 
-### 2. List Audio-Capable Processes
+## 🚀 Usage Example
 
-```swift
-let audioProcs = AudioRecorder.listAudioCapableProcesses()
-for (pid, name) in audioProcs {
-    print("Audio-capable process: \(name) [PID: \(pid)]")
-}
-```
-
-*This function returns all running processes that CoreAudio recognizes as having an audio object. These are the only processes you can tap for audio output. Note: This does not guarantee the process is currently producing audio, only that it is recognized by CoreAudio as audio-capable.*
-
-### 3. Find PID by Process Name
+The following example demonstrates how to find a process named "QuickTime Player" and record both its audio and the microphone's audio for 5 seconds.
 
 ```swift
-if let pid = AudioRecorder.pidForAudioCapableProcess(named: "coreaudiod") {
-    print("PID for coreaudiod: \(pid)")
-} else {
-    print("No audio-capable process found with that name.")
-}
-```
+import audiosdk
+import Foundation
 
-*This function searches the audio-capable process list for a process with the given name (case-insensitive) and returns its PID if found.*
-
-### 4. Start Recording
-
-```swift
 let recorder = AudioRecorder()
-let pid: pid_t = /* target process PID */
-let outputURL = URL(fileURLWithPath: "/path/to/output.wav")
-let outputDeviceID: Int? = /* e.g. 62, or nil for default */
+let processNameToFind = "QuickTime Player"
 
-try recorder.startRecording(pid: pid, outputFile: outputURL, outputDeviceID: outputDeviceID)
-```
-
-### 5. Stop Recording
-
-```swift
-recorder.stopRecording()
-```
-
-### 6. Post-Processing
-
-Optionally, set a closure to run after recording stops:
-
-```swift
-recorder.postProcessingHandler = { fileURL in
-    print("Post-processing at \(fileURL)")
-    // Normalize, transcode, upload, etc.
+// 1. Find the Process ID (PID)
+guard let pid = AudioRecorder.pidForAudioCapableProcess(named: processNameToFind) else {
+    print("❌ Could not find an audio-capable process named '\(processNameToFind)'.")
+    exit(1)
 }
+print("✅ Found PID for '\(processNameToFind)': \(pid)")
+
+// 2. Prepare Output File URLs
+guard let outputDir = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first?.appendingPathComponent("Recordings") else {
+    fatalError("Could not get desktop directory.")
+}
+try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+let dateString = ISO86GNCDateFormatter().string(from: Date())
+let processOutputFile = outputDir.appendingPathComponent("process-\(dateString).wav")
+let microphoneOutputFile = outputDir.appendingPathComponent("mic-\(dateString).wav")
+
+// 3. (Optional) Set Post-Processing Handlers
+recorder.postProcessingHandler = { url in
+    print("✅ Process recording finished: \(url.path)")
+}
+recorder.microphonePostProcessingHandler = { url in
+    print("✅ Microphone recording finished: \(url.path)")
+}
+
+// 4. Start Simultaneous Recording
+do {
+    print("▶️ Starting simultaneous recording...")
+    try recorder.startRecording(
+        pid: pid,
+        outputFile: processOutputFile,
+        microphoneFile: microphoneOutputFile
+        // You can also specify an `outputDeviceID` here for the process tap.
+        // `inputDeviceID` is ignored, as the mic recording uses the system default.
+    )
+
+    print("...Recording for 5 seconds...")
+    sleep(5)
+
+} catch {
+    print("❌ An error occurred: \(error.localizedDescription)")
+    exit(1)
+}
+
+// 5. Stop Recording
+print("⏹️ Stopping recording.")
+recorder.stopRecording()
 ```
 
 ---
 
-## 🧩 Example: Minimal Command-Line App
+## ⚙️ API Helpers
 
+The SDK also provides several static helper methods for device and process discovery.
+
+### List Output Devices
 ```swift
-import audiosdk
-
 let devices = AudioRecorder.listOutputAudioDevices()
 for device in devices {
-    print("\(device.name) [ID: \(device.id)]") // .id is the outputDeviceID
+    print("Output Device: \(device.name) [ID: \(device.id)]")
 }
+```
 
-let audioProcs = AudioRecorder.listAudioCapableProcesses()
-for (pid, name) in audioProcs {
-    print("Audio-capable process: \(name) [PID: \(pid)]")
+### List Input Devices
+```swift
+let devices = AudioRecorder.listInputAudioDevices()
+for device in devices {
+    print("Input Device: \(device.name) [ID: \(device.id)]")
 }
+```
 
-if let pid = AudioRecorder.pidForAudioCapableProcess(named: "coreaudiod") {
-    print("PID for coreaudiod: \(pid)")
+### List Audio-Capable Processes
+This function returns all running processes that Core Audio recognizes as having an audio object. These are the only processes you can tap for audio output.
+```swift
+let processes = AudioRecorder.listAudioCapableProcesses()
+for (pid, name) in processes {
+    print("Audio-Capable Process: \(name) [PID: \(pid)]")
 }
-
-let recorder = AudioRecorder()
-let pid: pid_t = 12345 // Replace with your target app's PID
-let outputURL = URL(fileURLWithPath: "/Users/yourname/Desktop/recording.wav")
-try recorder.startRecording(pid: pid, outputFile: outputURL, outputDeviceID: 62) // Use your outputDeviceID
-
-sleep(5)
-recorder.stopRecording()
 ```
 
 ---
 
 ## ⚠️ Notes & Limitations
 
-- **macOS 14.4+ only**: The process tap APIs are not available on earlier macOS versions.
-- **Permissions**: Your app may need microphone/audio capture permissions.
-- **Format**: Default output is `.wav` (uncompressed PCM). You can change this in your app.
-- **Process Must Be Running**: The target PID must be valid and producing audio.
-- **Audio-Capable Process Discovery**: Only processes recognized by CoreAudio as having an audio object can be tapped for output.
-- **Process Name Lookup**: Only exact (case-insensitive) matches are returned; multiple processes with the same name will return the first found.
+- **macOS 14.4+ Required**: The Core Audio process tap APIs are only available on recent versions of macOS.
+- **Permissions**: Your app must have the "Audio Input" capability enabled in its entitlements to record from the microphone.
+- **Default Microphone Only**: The current implementation of microphone recording uses the system's default input device. The API to select a specific input device is present but ignored.
+- **Test App**: The project includes a command-line `TestApp` that demonstrates the SDK's functionality. You can configure the `processNameToFind` and device names at the top of `main.swift`.
 
 ---
 
-## 📚 Reference & Credits
+## 📚 Credits
 
-- Inspired by [AudioCap](https://github.com/insidegui/AudioCap)
-- Uses Apple's new CoreAudio process tap APIs
+- Inspired by the advanced Core Audio patterns in [AudioCap](https://github.com/insidegui/AudioCap).
 
 ---
 
@@ -156,7 +147,5 @@ recorder.stopRecording()
 See [LICENSE](LICENSE) for details.
 
 ---
-
-
 
 **Happy hacking!**
