@@ -3,6 +3,7 @@ import AudioToolbox
 import AVFoundation
 import OSLog
 import Security
+import Accelerate
 
 public enum RecordingError: Error, LocalizedError {
     case general(String)
@@ -113,6 +114,19 @@ fileprivate final class ProcessTap {
                 self.logger.warning("Failed to create PCM buffer from incoming data.")
                 return
             }
+            
+            // --- RMS/Decibel computation ---
+            let frameLength = Int(pcmBuffer.frameLength)
+            for channel in 0..<Int(pcmBuffer.format.channelCount) {
+                if let floatChannelData = pcmBuffer.floatChannelData?[channel] {
+                    let buffer = UnsafeBufferPointer(start: floatChannelData, count: frameLength)
+                    let rms = vDSP.rootMeanSquare(buffer)
+                    let db = 20 * log10(rms)
+                   // self.logger.info("[RMS] Channel \(channel): RMS=\(rms), dB=\(db)")
+                    // TODO: self.delegate?.audioRecorder(self, didUpdateRMS: rms, decibel: db) // For future UI
+                }
+            }
+            // --- End RMS/Decibel computation ---
             
             do {
                 try currentFile.write(from: pcmBuffer)
