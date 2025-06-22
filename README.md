@@ -23,7 +23,7 @@
 - Translates a process PID to a CoreAudio object.
 - Creates a process tap and aggregate device for that process.
 - Streams audio data to a `.wav` file (or other formats if you wish).
-- Lets you select the output device (e.g., built-in speakers, external audio).
+- Lets you select the output device (e.g., built-in speakers, external audio) by name or ID.
 - Provides real-time audio analysis hooks (RMS, dB).
 - Ensures all CoreAudio resources are cleaned up, even after crashes.
 - **Enumerates audio-capable processes** for easy selection and UI integration.
@@ -46,7 +46,7 @@
 ```swift
 let devices = AudioRecorder.listOutputAudioDevices()
 for device in devices {
-    print("\(device.name) [ID: \(device.id)]")
+    print("\(device.name) [ID: \(device.id)]") // .id is the outputDeviceID
 }
 ```
 
@@ -79,9 +79,9 @@ if let pid = AudioRecorder.pidForAudioCapableProcess(named: "coreaudiod") {
 let recorder = AudioRecorder()
 let pid: pid_t = /* target process PID */
 let outputURL = URL(fileURLWithPath: "/path/to/output.wav")
-let deviceID: Int? = /* e.g. 62, or nil for default */
+let outputDeviceID: Int? = /* e.g. 62, or nil for default */
 
-try recorder.startRecording(pid: pid, outputFile: outputURL, outputDeviceID: deviceID)
+try recorder.startRecording(pid: pid, outputFile: outputURL, outputDeviceID: outputDeviceID)
 ```
 
 ### 5. Stop Recording
@@ -110,7 +110,7 @@ import audiosdk
 
 let devices = AudioRecorder.listOutputAudioDevices()
 for device in devices {
-    print("\(device.name) [ID: \(device.id)]")
+    print("\(device.name) [ID: \(device.id)]") // .id is the outputDeviceID
 }
 
 let audioProcs = AudioRecorder.listAudioCapableProcesses()
@@ -125,7 +125,7 @@ if let pid = AudioRecorder.pidForAudioCapableProcess(named: "coreaudiod") {
 let recorder = AudioRecorder()
 let pid: pid_t = 12345 // Replace with your target app's PID
 let outputURL = URL(fileURLWithPath: "/Users/yourname/Desktop/recording.wav")
-try recorder.startRecording(pid: pid, outputFile: outputURL, outputDeviceID: 62) // Use your device ID
+try recorder.startRecording(pid: pid, outputFile: outputURL, outputDeviceID: 62) // Use your outputDeviceID
 
 sleep(5)
 recorder.stopRecording()

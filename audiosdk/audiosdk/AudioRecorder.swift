@@ -52,7 +52,7 @@ public final class AudioRecorder {
             resolvedOutputDevice = try AudioObjectID.readDefaultSystemOutputDevice()
         }
         // Create and start a tap for the process
-        let newTap = ProcessTap(pid: pid, objectID: objectID, outputDevice: resolvedOutputDevice, logger: logger)
+        let newTap = ProcessTap(pid: pid, objectID: objectID, outputDeviceID: resolvedOutputDevice, logger: logger)
         try newTap.startRecording(to: outputFile)
         self.tap = newTap
     }
@@ -283,12 +283,12 @@ public final class AudioRecorder {
 fileprivate final class ProcessTap {
     private let pid: pid_t
     private let objectID: AudioObjectID
-    private let outputDevice: AudioDeviceID
+    private let outputDeviceID: AudioDeviceID
     private let logger: Logger
     private let queue = DispatchQueue(label: "ProcessTapRecorder", qos: .userInitiated)
 
     private var processTapID: AudioObjectID = .unknown
-    private var aggregateDeviceID: AudioObjectID = .unknown
+    private var systemOutputDeviceID: AudioObjectID = .unknown
     private var deviceProcID: AudioDeviceIOProcID?
 
     private var isRecording = false
@@ -300,14 +300,14 @@ fileprivate final class ProcessTap {
     }
 
     /// Initialize a tap for a specific process and audio output device.
-    init(pid: pid_t, objectID: AudioObjectID, outputDevice: AudioDeviceID, logger: Logger) {
+    init(pid: pid_t, objectID: AudioObjectID, outputDeviceID: AudioDeviceID, logger: Logger) {
         self.pid = pid
         self.objectID = objectID
-        self.outputDevice = outputDevice
+        self.outputDeviceID = outputDeviceID
         self.logger = logger
     }
 
-    /// Start recording: create tap, create aggregate device, start IO proc, and begin writing to file.
+    /// Start recording: create tap, create system output device (aggregate), start IO proc, and begin writing to file.
     func startRecording(to fileURL: URL) throws {
         guard !isRecording else {
             logger.warning("startRecording() called while already recording.")
@@ -326,8 +326,8 @@ fileprivate final class ProcessTap {
         guard err == noErr else { throw RecordingError.general("Failed to create process tap: \(osStatusDescription(err))") }
         self.processTapID = tapID
 
-        // Create an aggregate device that combines tap and the real output device
-        let outputUID = try outputDevice.readDeviceUID()
+        // Create a CoreAudio aggregate device (systemOutputDeviceID) that combines the tap and the real output device
+        let outputUID = try outputDeviceID.readDeviceUID()
         let aggregateUID = UUID().uuidString
         let description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "SDK-Tap-\(pid)",
@@ -345,12 +345,12 @@ fileprivate final class ProcessTap {
             throw RecordingError.general("Unsupported audio format. The SDK currently only supports Linear PCM float audio streams.")
         }
 
-        aggregateDeviceID = .unknown
-        // Create the aggregate device for routing audio (the tap plus the output device)
-        err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &aggregateDeviceID)
-        guard err == noErr else { throw RecordingError.general("Failed to create aggregate device: \(osStatusDescription(err))") }
+        systemOutputDeviceID = .unknown
+        // Create the system output device (aggregate device) for routing audio (the tap plus the output device)
+        err = AudioHardwareCreateAggregateDevice(description as CFDictionary, &systemOutputDeviceID)
+        guard err == noErr else { throw RecordingError.general("Failed to create system output device (aggregate): \(osStatusDescription(err))") }
 
-        logger.debug("Aggregate device #\(self.aggregateDeviceID, privacy: .public) created.")
+        logger.debug("System output device (aggregate) #\(self.systemOutputDeviceID, privacy: .public) created.")
 
         // Prepare an AVAudioFile for writing the captured stream
         guard let format = AVAudioFormat(streamDescription: &tapStreamDescription) else {
@@ -367,10 +367,10 @@ fileprivate final class ProcessTap {
         // Log device info and format
         logger.info("Recording to file: \(fileURL.path, privacy: .public)")
         logger.info("Audio format: sampleRate=\(format.sampleRate, privacy: .public), channels=\(format.channelCount, privacy: .public)")
-        logger.info("Tap device ID: \(self.processTapID, privacy: .public), Aggregate device ID: \(self.aggregateDeviceID, privacy: .public)")
+        logger.info("Tap device ID: \(self.processTapID, privacy: .public), System output device (aggregate) ID: \(self.systemOutputDeviceID, privacy: .public)")
 
-        // Register I/O proc callback that receives PCM buffers in real time from the aggregate device
-        err = AudioDeviceCreateIOProcIDWithBlock(&deviceProcID, aggregateDeviceID, queue) { [weak self] _, inData, _, _, _ in
+        // Register I/O proc callback that receives PCM buffers in real time from the system output device (aggregate)
+        err = AudioDeviceCreateIOProcIDWithBlock(&deviceProcID, systemOutputDeviceID, queue) { [weak self] _, inData, _, _, _ in
             guard let self, let currentFile = self.currentFile else { return }
 
             guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: inData) else {
@@ -400,9 +400,9 @@ fileprivate final class ProcessTap {
         }
         guard err == noErr else { throw RecordingError.general("Failed to create IO proc: \(osStatusDescription(err))") }
 
-        // Start the audio device, which begins the callback and audio streaming
-        err = AudioDeviceStart(aggregateDeviceID, deviceProcID)
-        guard err == noErr else { throw RecordingError.general("Failed to start audio device: \(osStatusDescription(err))") }
+        // Start the system output device (aggregate), which begins the callback and audio streaming
+        err = AudioDeviceStart(systemOutputDeviceID, deviceProcID)
+        guard err == noErr else { throw RecordingError.general("Failed to start system output device (aggregate): \(osStatusDescription(err))") }
 
         isRecording = true
         logger.debug("Recording started.")
@@ -417,17 +417,17 @@ fileprivate final class ProcessTap {
         isRecording = false
         currentFile = nil
 
-        // Stop and remove IO proc from aggregate device
-        if aggregateDeviceID != .unknown, let procID = deviceProcID {
-            _ = AudioDeviceStop(aggregateDeviceID, procID)
-            _ = AudioDeviceDestroyIOProcID(aggregateDeviceID, procID)
+        // Stop and remove IO proc from system output device (aggregate)
+        if systemOutputDeviceID != .unknown, let procID = deviceProcID {
+            _ = AudioDeviceStop(systemOutputDeviceID, procID)
+            _ = AudioDeviceDestroyIOProcID(systemOutputDeviceID, procID)
             self.deviceProcID = nil
         }
 
-        // Destroy aggregate device (removes from Core Audio device list)
-        if aggregateDeviceID != .unknown {
-            _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
-            self.aggregateDeviceID = .unknown
+        // Destroy system output device (aggregate) (removes from Core Audio device list)
+        if systemOutputDeviceID != .unknown {
+            _ = AudioHardwareDestroyAggregateDevice(systemOutputDeviceID)
+            self.systemOutputDeviceID = .unknown
         }
 
         // Destroy process tap device
