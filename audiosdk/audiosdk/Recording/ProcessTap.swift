@@ -9,6 +9,7 @@ import Foundation
 import AudioToolbox
 import AVFoundation
 import OSLog
+import Accelerate
 
 final class ProcessTap {
     private let pid: pid_t
@@ -80,7 +81,31 @@ final class ProcessTap {
         logger.info("Tap device ID: \(self.processTapID, privacy: .public), System output device (aggregate) ID: \(self.systemOutputDeviceID, privacy: .public)")
         err = AudioDeviceCreateIOProcIDWithBlock(&deviceProcID, systemOutputDeviceID, queue) { [weak self] _, inData, _, _, _ in
             guard let self, let currentFile = self.currentFile else { return }
-            // PCM buffer writing logic would go here
+
+            guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: inData) else {
+                self.logger.warning("Failed to create PCM buffer from incoming data.")
+                return
+            }
+
+            // --- RMS/Decibel computation for each channel (can be used for live metering in UI) ---
+            let frameLength = Int(pcmBuffer.frameLength)
+            for channel in 0..<Int(pcmBuffer.format.channelCount) {
+                if let floatChannelData = pcmBuffer.floatChannelData?[channel] {
+                    let buffer = UnsafeBufferPointer(start: floatChannelData, count: frameLength)
+                    let rms = vDSP.rootMeanSquare(buffer)
+                    let db = 20 * log10(rms)
+                    // Example: self.logger.info("[RMS] Channel \(channel): RMS=\(rms), dB=\(db)")
+                    // Optionally notify UI or observers about RMS/dB for visualization
+                }
+            }
+            // --- End RMS/Decibel computation ---
+
+            do {
+                // Write captured audio buffer to file
+                try currentFile.write(from: pcmBuffer)
+            } catch {
+                self.logger.error("Failed to write audio buffer to file: \(error.localizedDescription)")
+            }
         }
         guard err == noErr else { throw RecordingError.general("Failed to create IO proc: \(osStatusDescription(err))") }
         err = AudioDeviceStart(systemOutputDeviceID, deviceProcID)
